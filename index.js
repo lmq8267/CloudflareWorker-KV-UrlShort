@@ -127,24 +127,25 @@ const index = `<!doctype html>
 
             <br>
             <div id="input-container">
-                <div id="link_div" class="input-group mb-3">
-                    <select class="form-control" id="select">
-                        <option value="link">Link</option>
-                        <option value="text">Text</option>
-                        <option value="html">HTML</option>
-                    </select>
-                    <select class="form-control" id="expiration">
-                        <option value="-1">无限制</option>
-                        <option value="burn_after_reading">阅后即焚</option>
-                        <option value="1">1分钟</option>
-                        <option value="10">10分钟</option>
-                        <option value="60">1小时</option>
-                        <option value="1440">1天</option>
-                        <option value="10080">7天</option>
-                        <option value="43200">1个月</option>
-                    </select>
-                    <input type="text" id="name" placeholder="自定义后缀" class="input-group-text">
-                </div>
+            <div id="link_div" class="input-group mb-3">
+            <select class="form-control" id="select">
+                <option value="link">Link</option>
+                <option value="text">Text</option>
+                <option value="html">HTML</option>
+            </select>
+            <select class="form-control" id="expiration">
+                <option value="-1">无限制</option>
+                <option value="burn_after_reading">阅后即焚</option>
+                <option value="1">1分钟</option>
+                <option value="10">10分钟</option>
+                <option value="60">1小时</option>
+                <option value="1440">1天</option>
+                <option value="10080">7天</option>
+                <option value="43200">1个月</option>
+            </select>
+            <input type="text" id="name" placeholder="自定义后缀" class="input-group-text">
+            <input type="password" id="password" placeholder="输入后缀密码" class="input-group-text">
+        </div>
             </div>
             <div id="text_div">
                 <textarea id="link" placeholder="输入链接/文本/HTML源代码" class="form-control" rows="10"></textarea><br>
@@ -204,46 +205,52 @@ const index = `<!doctype html>
         }
         
         function getlink() {
-            let link = document.getElementById('link').value.trim()
-            const name = document.getElementById('name').value
-            const type = document.getElementById('select').value
+            let link = document.getElementById('link').value.trim();
+            const name = document.getElementById('name').value;
+            const type = document.getElementById('select').value;
+            const password = document.getElementById('password').value;
+        
             if (link === '') {
-                document.getElementById('result').innerHTML = "请输入链接/文本/HTML源代码"
+                document.getElementById('result').innerHTML = "请输入链接/文本/HTML源代码";
                 return;
             }
+        
             if (link.indexOf('http') == -1 && type == "link") {
-                link = 'http://' + link
+                link = 'http://' + link;
             }
+        
             if (type == "link" && !isValidUrl(link)) {
-                document.getElementById('result').innerHTML = "请输入有效的URL格式"
+                document.getElementById('result').innerHTML = "请输入有效的URL格式";
                 return;
             }
-            document.getElementById('result').innerHTML = "生成中.."
+        
+            document.getElementById('result').innerHTML = "生成中..";
             const expirationElement = document.getElementById('expiration');
             const selectedIndex = expirationElement.selectedIndex;
             const expiration = expirationElement.options[selectedIndex].value;
             const burnAfterReading = expiration === 'burn_after_reading';
+        
             postData("${API_PATH}", {
                 "${URL_KEY}": link,
                 "${URL_NAME}": name,
                 "type": type,
                 "expiration": burnAfterReading ? -1 : expiration,
-                "burn_after_reading": burnAfterReading
-              }).then(resp => {
+                "burn_after_reading": burnAfterReading,
+                "password": password
+            }).then(resp => {
                 if (resp.error) {
-                  document.getElementById('result').innerHTML = resp.error;
-                  document.getElementById('name').value = ''
+                    document.getElementById('result').innerHTML = resp.error;
+                    document.getElementById('name').value = ''
                 } else if (resp.value) {
-                  document.getElementById('result').innerHTML = resp.value;
+                    document.getElementById('result').innerHTML = resp.value;
                 } else {
-                  var url = document.location.protocol + '//' + document.location.host + '/' + resp['${URL_NAME}']
-                  document.getElementById('result').innerHTML = url
-                  document.getElementById('link').value = ''
-                  document.getElementById('name').value = ''
-                  document.getElementById('select').selectedIndex = 0
+                    var url = document.location.protocol + '//' + document.location.host + '/' + resp['${URL_NAME}'];
+                    document.getElementById('result').innerHTML = url;
+                    document.getElementById('link').value = '';
+                    document.getElementById('name').value = '';
+                    document.getElementById('select').selectedIndex = 0;
                 }
-              });
-              
+            });
         }
 
     </script>
@@ -253,118 +260,116 @@ const index = `<!doctype html>
 </html>`;
 
 addEventListener("fetch", (event) => {
-  event.respondWith(handleRequest(event.request));
-});
-
-/**
- * Respond with hello worker text
- * @param {Request} request
- */
-
-async function handleRequest(request) {
-  const { protocol, hostname, pathname } = new URL(request.url);
-  // index.html
-  if (pathname == ADMIN_PATH) {
-    return new Response(index, {
-      headers: { "content-type": "text/html; charset=utf-8" },
-    });
-  }
-  // short api
-if (pathname.startsWith(API_PATH)) {
-    const body = JSON.parse(await request.text());
-    console.log(body);
-    var short_type = "link";
-    if (body["type"] != undefined && body["type"] != "") {
-      short_type = body["type"];
-    }
-    if (
-      body[URL_NAME] == undefined ||
-      body[URL_NAME] == "" ||
-      body[URL_NAME].length < 2
-    ) {
-      body[URL_NAME] = Math.random().toString(36).slice(-6);
-    }
-    
-    // 检查自定义后缀是否已经存在
-    if (await shortlink.get(body[URL_NAME])) {
-      return new Response(
-        JSON.stringify({ error: "该后缀已经被使用，请使用其他后缀。" }),
-        {
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-        }
-      );
-    }
-    
-    const expiration = parseInt(body["expiration"]);
-    let expiresAt = null;
-    await shortlink.put(
-      body[URL_NAME],
-      JSON.stringify({
-        type: short_type,
-        value: body[URL_KEY],
-        expiresAt: expiresAt ? expiresAt.toISOString() : null,
-        burn_after_reading: body["burn_after_reading"], 
-      })
-    );
-     // Remove other fields from the response body
-    const responseBody = {
-      type: body.type,
-      shorturl: `${protocol}//${hostname}/${body[URL_NAME]}`,
-      shortCode: body[URL_NAME],
-    };
-    
-    // Add Access-Control-Allow-Origin header to the response
-    return new Response(JSON.stringify(responseBody), {
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
-  }
+    event.respondWith(handleRequest(event.request));
+  });
   
-  const key = pathname.replace("/", "");
-  if (key !== "" && !(await shortlink.get(key))) {
-    return Response.redirect(`${protocol}//${hostname}${ADMIN_PATH}`, 302);
-  }
-  if (key == "") {
-    const html = await fetch(STATICHTML);
-    return new Response(await html.text(), {
-      headers: {
-        "content-type": "text/html;charset=UTF-8",
-      },
-    });
-  }
-  let link = await shortlink.get(key);
-  if (link != null) {
-    link = JSON.parse(link);
-    console.log(link);
-    const expiresAt = link["expiresAt"] ? new Date(link["expiresAt"]) : null;
-    const now = new Date();
-    if (expiresAt && now >= expiresAt) {
-      return new Response(`链接已过期`, {
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
-    }
-    // 删除阅后即焚的链接
-    if (link["burn_after_reading"]) {
-      await shortlink.delete(key);
-    }
-    // redirect
-    if (link["type"] == "link") {
-      return Response.redirect(link["value"], 302);
-    }
-    if (link["type"] == "html") {
-      return new Response(link["value"], {
+  async function handleRequest(request) {
+    const { protocol, hostname, pathname } = new URL(request.url);
+  
+    if (pathname == ADMIN_PATH) {
+      return new Response(index, {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
-    } else {
-      // textarea
-      return new Response(`${link["value"]}`, {
-        headers: { "content-type": "text/plain; charset=utf-8" },
+    }
+  
+    if (pathname.startsWith(API_PATH)) {
+      const body = JSON.parse(await request.text());
+      var short_type = "link";
+      if (body["type"] != undefined && body["type"] != "") {
+        short_type = body["type"];
+      }
+      if (
+        body[URL_NAME] == undefined ||
+        body[URL_NAME] == "" ||
+        body[URL_NAME].length < 2
+      ) {
+        body[URL_NAME] = Math.random().toString(36).slice(-6);
+      }
+  
+      const existingData = await shortlink.get(body[URL_NAME]);
+      if (existingData) {
+        const existing = JSON.parse(existingData);
+        if (existing.password && existing.password !== body.password) {
+          return new Response(
+            JSON.stringify({ error: "密码错误！该后缀已经被使用，请使用正确的密码修改或使用其他后缀。" }),
+            {
+              headers: { "Content-Type": "application/json; charset=utf-8" },
+            }
+          );
+        }
+      }
+  
+      const expiration = parseInt(body["expiration"]);
+      let expiresAt = null;
+      if (expiration > 0) {
+        expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + expiration);
+      }
+  
+      await shortlink.put(
+        body[URL_NAME],
+        JSON.stringify({
+          type: short_type,
+          value: body[URL_KEY],
+          expiresAt: expiresAt ? expiresAt.toISOString() : null,
+          burn_after_reading: body["burn_after_reading"],
+          password: body.password
+        })
+      );
+  
+      const responseBody = {
+        type: body.type,
+        shorturl: `${protocol}//${hostname}/${body[URL_NAME]}`,
+        shortCode: body[URL_NAME],
+      };
+  
+      return new Response(JSON.stringify(responseBody), {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+        },
       });
     }
+  
+    const key = pathname.replace("/", "");
+    if (key !== "" && !(await shortlink.get(key))) {
+      return Response.redirect(`${protocol}//${hostname}${ADMIN_PATH}`, 302);
+    }
+    if (key == "") {
+      const html = await fetch(STATICHTML);
+      return new Response(await html.text(), {
+        headers: {
+          "content-type": "text/html;charset=UTF-8",
+        },
+      });
+    }
+    let link = await shortlink.get(key);
+    if (link != null) {
+      link = JSON.parse(link);
+      const expiresAt = link["expiresAt"] ? new Date(link["expiresAt"]) : null;
+      const now = new Date();
+      if (expiresAt && now >= expiresAt) {
+        return new Response(`链接已过期`, {
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+      if (link["burn_after_reading"]) {
+        await shortlink.delete(key);
+      }
+      if (link["type"] == "link") {
+        return Response.redirect(link["value"], 302);
+      }
+      if (link["type"] == "html") {
+        return new Response(link["value"], {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      } else {
+        return new Response(`${link["value"]}`, {
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+    }
+    return new Response(`403`, {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
   }
-  return new Response(`403`, {
-    headers: { "content-type": "text/plain; charset=utf-8" },
-  });
-}
