@@ -157,7 +157,12 @@ const index = `<!doctype html>
         </main>
 
     </div>
-
+    <footer class="footer">
+    <div class="container">
+        <a href="https://www.cloudflare.com/" class="text-muted">基于Cloudflare-WorkerKV</a>
+        <span class="text-muted">站长邮箱: 你的邮箱地址 </span>
+    </div>
+    </footer>
     <script>
         async function postData(url = '', data = {}) {
             const response = await fetch(url, {
