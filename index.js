@@ -157,13 +157,6 @@ const index = `<!doctype html>
         </main>
 
     </div>
-    
-    <footer class="footer">
-        <div class="container">
-        <a href="https://www.cloudflare.com/" class="text-muted">基于Cloudflare-WorkerKV的</a>
-        <a href="https://github.com/Aiayw/CloudflareWorkerKV-UrlShort" class="text-muted">开源项目，请自行部署体验</a>
-        </div>
-    </footer>
 
     <script>
         async function postData(url = '', data = {}) {
@@ -261,116 +254,114 @@ const index = `<!doctype html>
 </html>`;
 
 addEventListener("fetch", (event) => {
-    event.respondWith(handleRequest(event.request));
-  });
-  
-  async function handleRequest(request) {
-    const { protocol, hostname, pathname } = new URL(request.url);
-  
-    if (pathname == ADMIN_PATH) {
+  event.respondWith(handleRequest(event.request));
+});
+
+async function handleRequest(request) {
+  const { protocol, hostname, pathname } = new URL(request.url);
+
+  if (pathname == ADMIN_PATH) {
       return new Response(index, {
-        headers: { "content-type": "text/html; charset=utf-8" },
+          headers: { "content-type": "text/html; charset=utf-8" },
       });
-    }
-  
-    if (pathname.startsWith(API_PATH)) {
+  }
+
+  if (pathname.startsWith(API_PATH)) {
       const body = JSON.parse(await request.text());
+      const clientIp = request.headers.get("CF-Connecting-IP") || request.headers.get("x-forwarded-for") || "unknown";
       var short_type = "link";
       if (body["type"] != undefined && body["type"] != "") {
-        short_type = body["type"];
+          short_type = body["type"];
       }
-      if (
-        body[URL_NAME] == undefined ||
-        body[URL_NAME] == "" ||
-        body[URL_NAME].length < 2
-      ) {
-        body[URL_NAME] = Math.random().toString(36).slice(-6);
+      if (body[URL_NAME] == undefined || body[URL_NAME] == "" || body[URL_NAME].length < 2) {
+          body[URL_NAME] = Math.random().toString(36).slice(-6);
       }
-  
+
       const existingData = await shortlink.get(body[URL_NAME]);
       if (existingData) {
-        const existing = JSON.parse(existingData);
-        if (existing.password && existing.password !== body.password) {
-          return new Response(
-            JSON.stringify({ error: "密码错误！该后缀已经被使用，请使用正确的密码修改或使用其他后缀。" }),
-            {
-              headers: { "Content-Type": "application/json; charset=utf-8" },
-            }
-          );
-        }
+          const existing = JSON.parse(existingData);
+          if (existing.password && existing.password !== body.password) {
+              return new Response(
+                  JSON.stringify({ error: "密码错误！该后缀已经被使用，请使用正确的密码修改或使用其他后缀。" }),
+                  {
+                      headers: { "Content-Type": "application/json; charset=utf-8" },
+                  }
+              );
+          }
       }
-  
+
       const expiration = parseInt(body["expiration"]);
       let expiresAt = null;
       if (expiration > 0) {
-        expiresAt = new Date();
-        expiresAt.setMinutes(expiresAt.getMinutes() + expiration);
+          expiresAt = new Date();
+          expiresAt.setMinutes(expiresAt.getMinutes() + expiration);
       }
-  
+
       await shortlink.put(
-        body[URL_NAME],
-        JSON.stringify({
-          type: short_type,
-          value: body[URL_KEY],
-          expiresAt: expiresAt ? expiresAt.toISOString() : null,
-          burn_after_reading: body["burn_after_reading"],
-          password: body.password
-        })
+          body[URL_NAME],
+          JSON.stringify({
+              type: short_type,
+              value: body[URL_KEY],
+              expiresAt: expiresAt ? expiresAt.toISOString() : null,
+              burn_after_reading: body["burn_after_reading"],
+              password: body.password,
+              clientIp: clientIp  // 记录客户端IP地址
+          })
       );
-  
+
       const responseBody = {
-        type: body.type,
-        shorturl: `${protocol}//${hostname}/${body[URL_NAME]}`,
-        shortCode: body[URL_NAME],
+          type: body.type,
+          shorturl: `${protocol}//${hostname}/${body[URL_NAME]}`,
+          shortCode: body[URL_NAME],
       };
-  
+
       return new Response(JSON.stringify(responseBody), {
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
-        },
+          headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Access-Control-Allow-Origin": "*",
+          },
       });
-    }
-  
-    const key = pathname.replace("/", "");
-    if (key !== "" && !(await shortlink.get(key))) {
+  }
+
+  const key = pathname.replace("/", "");
+  if (key !== "" && !(await shortlink.get(key))) {
       return Response.redirect(`${protocol}//${hostname}${ADMIN_PATH}`, 302);
-    }
-    if (key == "") {
+  }
+  if (key == "") {
       const html = await fetch(STATICHTML);
       return new Response(await html.text(), {
-        headers: {
-          "content-type": "text/html;charset=UTF-8",
-        },
+          headers: {
+              "content-type": "text/html;charset=UTF-8",
+          },
       });
-    }
-    let link = await shortlink.get(key);
-    if (link != null) {
+  }
+  let link = await shortlink.get(key);
+  if (link != null) {
       link = JSON.parse(link);
       const expiresAt = link["expiresAt"] ? new Date(link["expiresAt"]) : null;
       const now = new Date();
       if (expiresAt && now >= expiresAt) {
-        return new Response(`链接已过期`, {
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        });
+          return new Response(`链接已过期`, {
+              headers: { "content-type": "text/plain; charset=utf-8" },
+          });
       }
       if (link["burn_after_reading"]) {
-        await shortlink.delete(key);
+          await shortlink.delete(key);
       }
       if (link["type"] == "link") {
-        return Response.redirect(link["value"], 302);
+          return Response.redirect(link["value"], 302);
       }
       if (link["type"] == "html") {
-        return new Response(link["value"], {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
+          return new Response(link["value"], {
+              headers: { "content-type": "text/html; charset=utf-8" },
+          });
       } else {
-        return new Response(`${link["value"]}`, {
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        });
+          return new Response(`${link["value"]}`, {
+              headers: { "content-type": "text/plain; charset=utf-8" },
+          });
       }
-    }
-    return new Response(`403`, {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
   }
+  return new Response(`403`, {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
