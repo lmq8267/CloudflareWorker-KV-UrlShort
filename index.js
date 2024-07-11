@@ -129,12 +129,12 @@ const index = `<!doctype html>
             <div id="input-container">
             <div id="link_div" class="input-group mb-3">
             <select class="form-control" id="select">
-                <option value="link">Link</option>
-                <option value="text">Text</option>
-                <option value="html">HTML</option>
+                <option value="link">网址链接</option>
+                <option value="text">文本字符</option>
+                <option value="html">HTML源代码</option>
             </select>
             <select class="form-control" id="expiration">
-                <option value="-1">无限制</option>
+                <option value="-1">时效：永久有效</option>
                 <option value="burn_after_reading">阅后即焚</option>
                 <option value="1">1分钟</option>
                 <option value="10">10分钟</option>
@@ -143,15 +143,16 @@ const index = `<!doctype html>
                 <option value="10080">7天</option>
                 <option value="43200">1个月</option>
             </select>
-            <input type="text" id="name" placeholder="自定义后缀" class="input-group-text">
+            <input type="text" id="name" placeholder="自定义网址后缀" class="input-group-text">
             <input type="password" id="password" placeholder="输入后缀密码" class="input-group-text">
         </div>
             </div>
+            <div class="text-danger" style="color: red; font-weight: bold;">⚠️请务必牢记后缀密码，忘记将无法修改，只能联系此站长删除！👆</div>
             <div id="text_div">
-                <textarea id="link" placeholder="输入链接/文本/HTML源代码" class="form-control" rows="10"></textarea><br>
+                <textarea id="link" placeholder="请输入长链接/文本/HTML源代码内容" class="form-control" rows="10"></textarea><br>
             </div>
             <p class="lead">
-                <a href="#" onclick="getlink()" class="btn btn-lg btn-secondary fw-bold border-white bg-white">生成</a>
+                <a href="#" onclick="getlink()" class="btn btn-lg btn-secondary fw-bold border-white bg-white">生成/修改</a>
             </p>
         </main>
 
@@ -211,7 +212,7 @@ const index = `<!doctype html>
             const password = document.getElementById('password').value;
         
             if (link === '') {
-                document.getElementById('result').innerHTML = "请输入链接/文本/HTML源代码";
+                document.getElementById('result').innerHTML = "请输入长链接/文本/HTML源代码内容";
                 return;
             }
         
