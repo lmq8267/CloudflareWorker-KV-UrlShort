@@ -155,14 +155,18 @@ const index = `<!doctype html>
                 <a href="#" onclick="getlink()" class="btn btn-lg btn-secondary fw-bold border-white bg-white">生成/修改</a>
             </p>
         </main>
-
+        <div class="stats">
+        总计生成: {{totalRules}} 条 | 今日新增: {{todayNewRules}} 条 | 总计转址: {{totalVisits}} 次 | 今日转址: {{todayVisits}} 次
     </div>
+    </div>
+    
     <footer class="footer">
     <div class="container">
         <a href="https://www.cloudflare.com/" class="text-muted">基于Cloudflare-WorkerKV</a>
-        <span class="text-muted">站长邮箱: 你的邮箱地址 </span>
+        <span class="text-muted">站长邮箱: 修改为你的邮箱地址 </span>
     </div>
-    </footer>
+</footer>
+
     <script>
         async function postData(url = '', data = {}) {
             const response = await fetch(url, {
@@ -251,7 +255,7 @@ const index = `<!doctype html>
                 }
             });
         }
-
+        
     </script>
 
 </body>
@@ -263,110 +267,169 @@ addEventListener("fetch", (event) => {
 });
 
 async function handleRequest(request) {
-  const { protocol, hostname, pathname } = new URL(request.url);
+    const { protocol, hostname, pathname } = new URL(request.url);
 
-  if (pathname == ADMIN_PATH) {
-      return new Response(index, {
-          headers: { "content-type": "text/html; charset=utf-8" },
-      });
-  }
+    if (!await shortlink.get('total_rules')) {
+        await shortlink.put('total_rules', '0');
+    }
+    if (!await shortlink.get('today_new_rules')) {
+        await shortlink.put('today_new_rules', '0');
+    }
+    if (!await shortlink.get('last_rule_update')) {
+        await shortlink.put('last_rule_update', new Date().toISOString().split('T')[0]);
+    }
 
-  if (pathname.startsWith(API_PATH)) {
-      const body = JSON.parse(await request.text());
-      const clientIp = request.headers.get("CF-Connecting-IP") || request.headers.get("x-forwarded-for") || "unknown";
-      var short_type = "link";
-      if (body["type"] != undefined && body["type"] != "") {
-          short_type = body["type"];
-      }
-      if (body[URL_NAME] == undefined || body[URL_NAME] == "" || body[URL_NAME].length < 2) {
-          body[URL_NAME] = Math.random().toString(36).slice(-6);
-      }
-
-      const existingData = await shortlink.get(body[URL_NAME]);
-      if (existingData) {
-          const existing = JSON.parse(existingData);
-          if (existing.password && existing.password !== body.password) {
-              return new Response(
-                  JSON.stringify({ error: "密码错误！该后缀已经被使用，请使用正确的密码修改或使用其他后缀。" }),
-                  {
-                      headers: { "Content-Type": "application/json; charset=utf-8" },
-                  }
-              );
-          }
-      }
-
-      const expiration = parseInt(body["expiration"]);
-      let expiresAt = null;
-      if (expiration > 0) {
-          expiresAt = new Date();
-          expiresAt.setMinutes(expiresAt.getMinutes() + expiration);
-      }
-
-      await shortlink.put(
-          body[URL_NAME],
-          JSON.stringify({
-              type: short_type,
-              value: body[URL_KEY],
-              expiresAt: expiresAt ? expiresAt.toISOString() : null,
-              burn_after_reading: body["burn_after_reading"],
-              password: body.password,
-              clientIp: clientIp  // 记录客户端IP地址
-          })
-      );
-
-      const responseBody = {
-          type: body.type,
-          shorturl: `${protocol}//${hostname}/${body[URL_NAME]}`,
-          shortCode: body[URL_NAME],
-      };
-
-      return new Response(JSON.stringify(responseBody), {
-          headers: {
-              "Content-Type": "application/json; charset=utf-8",
-              "Access-Control-Allow-Origin": "*",
-          },
-      });
-  }
-
-  const key = pathname.replace("/", "");
-  if (key !== "" && !(await shortlink.get(key))) {
+    if (pathname == ADMIN_PATH) {
+        const totalVisits = await shortlink.get('total_visits') || 0;
+        const todayVisits = await shortlink.get('today_visits') || 0;
+        const totalRules = await shortlink.get('total_rules') || 0;
+        const todayNewRules = await shortlink.get('today_new_rules') || 0;
+    
+        const indexWithStats = index.replace("{{totalVisits}}", totalVisits)
+                                    .replace("{{todayVisits}}", todayVisits)
+                                    .replace("{{totalRules}}", totalRules)
+                                    .replace("{{todayNewRules}}", todayNewRules);
+    
+        return new Response(indexWithStats, {
+            headers: { "content-type": "text/html; charset=utf-8" },
+        });
+    }
+  
+    if (pathname.startsWith(API_PATH)) {
+        const body = JSON.parse(await request.text());
+        const clientIp = request.headers.get("CF-Connecting-IP") || request.headers.get("x-forwarded-for") || "unknown";
+        var short_type = "link";
+        if (body["type"] != undefined && body["type"] != "") {
+            short_type = body["type"];
+        }
+        if (body[URL_NAME] == undefined || body[URL_NAME] == "" || body[URL_NAME].length < 2) {
+            body[URL_NAME] = Math.random().toString(36).slice(-6);
+        }
+    
+        const existingData = await shortlink.get(body[URL_NAME]);
+        const isNewRule = !existingData;
+    
+        if (existingData) {
+            const existing = JSON.parse(existingData);
+            if (existing.password && existing.password !== body.password) {
+                return new Response(
+                    JSON.stringify({ error: "密码错误！该后缀已经被使用，请使用正确的密码修改或使用其他后缀。" }),
+                    {
+                        headers: { "Content-Type": "application/json; charset=utf-8" },
+                    }
+                );
+            }
+        }
+    
+        const expiration = parseInt(body["expiration"]);
+        let expiresAt = null;
+        if (expiration > 0) {
+            expiresAt = new Date();
+            expiresAt.setMinutes(expiresAt.getMinutes() + expiration);
+        }
+    
+        await shortlink.put(
+            body[URL_NAME],
+            JSON.stringify({
+                type: short_type,
+                value: body[URL_KEY],
+                expiresAt: expiresAt ? expiresAt.toISOString() : null,
+                burn_after_reading: body["burn_after_reading"],
+                password: body.password,
+                clientIp: clientIp  // 记录客户端IP地址
+            })
+        );
+    
+        // 仅当新规则时，更新规则数量
+        if (isNewRule) {
+            let totalRules = parseInt(await shortlink.get('total_rules')) || 0;
+            let todayNewRules = parseInt(await shortlink.get('today_new_rules')) || 0;
+            const lastRuleUpdate = await shortlink.get('last_rule_update');
+            const today = new Date().toISOString().split('T')[0];
+    
+            if (lastRuleUpdate !== today) {
+                todayNewRules = 0;
+            }
+    
+            totalRules += 1;
+            todayNewRules += 1;
+    
+            await shortlink.put('total_rules', totalRules.toString());
+            await shortlink.put('today_new_rules', todayNewRules.toString());
+            await shortlink.put('last_rule_update', today);
+        }
+    
+        const responseBody = {
+            type: body.type,
+            shorturl: `${protocol}//${hostname}/${body[URL_NAME]}`,
+            shortCode: body[URL_NAME],
+        };
+    
+        return new Response(JSON.stringify(responseBody), {
+            headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                "Access-Control-Allow-Origin": "*",
+            },
+        });
+    }
+  
+    const key = pathname.replace("/", "");
+    if (key !== "" && !(await shortlink.get(key))) {
       return Response.redirect(`${protocol}//${hostname}${ADMIN_PATH}`, 302);
-  }
-  if (key == "") {
+    }
+    if (key == "") {
       const html = await fetch(STATICHTML);
       return new Response(await html.text(), {
-          headers: {
-              "content-type": "text/html;charset=UTF-8",
-          },
+        headers: {
+          "content-type": "text/html;charset=UTF-8",
+        },
       });
-  }
-  let link = await shortlink.get(key);
-  if (link != null) {
+    }
+    let link = await shortlink.get(key);
+    if (link != null) {
       link = JSON.parse(link);
       const expiresAt = link["expiresAt"] ? new Date(link["expiresAt"]) : null;
       const now = new Date();
       if (expiresAt && now >= expiresAt) {
-          return new Response(`链接已过期`, {
-              headers: { "content-type": "text/plain; charset=utf-8" },
-          });
+        return new Response(`链接已过期`, {
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        });
       }
       if (link["burn_after_reading"]) {
-          await shortlink.delete(key);
+        await shortlink.delete(key);
       }
+  
+      // Update visit counts
+      let totalVisits = parseInt(await shortlink.get('total_visits')) || 0;
+      let todayVisits = parseInt(await shortlink.get('today_visits')) || 0;
+      const lastUpdate = await shortlink.get('last_update');
+      const today = new Date().toISOString().split('T')[0];
+  
+      if (lastUpdate !== today) {
+        todayVisits = 0;
+      }
+  
+      totalVisits += 1;
+      todayVisits += 1;
+  
+      await shortlink.put('total_visits', totalVisits.toString());
+      await shortlink.put('today_visits', todayVisits.toString());
+      await shortlink.put('last_update', today);
+  
       if (link["type"] == "link") {
-          return Response.redirect(link["value"], 302);
+        return Response.redirect(link["value"], 302);
       }
       if (link["type"] == "html") {
-          return new Response(link["value"], {
-              headers: { "content-type": "text/html; charset=utf-8" },
-          });
+        return new Response(link["value"], {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
       } else {
-          return new Response(`${link["value"]}`, {
-              headers: { "content-type": "text/plain; charset=utf-8" },
-          });
+        return new Response(`${link["value"]}`, {
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        });
       }
-  }
-  return new Response(`403`, {
+    }
+    return new Response(`403`, {
       headers: { "content-type": "text/plain; charset=utf-8" },
-  });
-}
+    });
+  }
