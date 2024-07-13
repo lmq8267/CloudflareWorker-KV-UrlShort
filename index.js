@@ -156,8 +156,7 @@ const index = `<!doctype html>
             </p>
         </main>
         <div class="stats">
-        总计生成: {{totalRules}} 条 | 今日新增: {{todayNewRules}} 条 | 总计转址: {{totalVisits}} 次 | 今日转址: {{todayVisits}} 次
-    </div>
+        总计生成: {{totalRules}} 条 | 今日新增: {{todayNewRules}} 条
     </div>
     
     <footer class="footer">
@@ -269,35 +268,49 @@ addEventListener("fetch", (event) => {
 async function handleRequest(request) {
     const { protocol, hostname, pathname } = new URL(request.url);
 
-    if (!await shortlink.get('total_rules')) {
-        await shortlink.put('total_rules', '0');
-    }
-    if (!await shortlink.get('today_new_rules')) {
-        await shortlink.put('today_new_rules', '0');
-    }
-    if (!await shortlink.get('last_rule_update')) {
-        await shortlink.put('last_rule_update', new Date().toISOString().split('T')[0]);
+    if (!await shortlink.get('short_rules')) {
+        const shortRulesData = {
+            total_rules: '0',
+            today_new_rules: '0',
+        };
+        await shortlink.put('short_rules', JSON.stringify(shortRulesData));
+    } else {
+        const shortRulesData = JSON.parse(await shortlink.get('short_rules'));
+        if (!shortRulesData.total_rules) {
+            shortRulesData.total_rules = '0';
+        }
+        if (!shortRulesData.today_new_rules) {
+            shortRulesData.today_new_rules = '0';
+        }
+        if (!shortRulesData.last_rule_update) {
+            shortRulesData.today_new_rules = '2024';
+        }
+        await shortlink.put('short_rules', JSON.stringify(shortRulesData));
     }
 
+
     if (pathname == ADMIN_PATH) {
-        const totalVisits = await shortlink.get('total_visits') || 0;
-        const todayVisits = await shortlink.get('today_visits') || 0;
-        const totalRules = await shortlink.get('total_rules') || 0;
-        const todayNewRules = await shortlink.get('today_new_rules') || 0;
-    
-        const indexWithStats = index.replace("{{totalVisits}}", totalVisits)
-                                    .replace("{{todayVisits}}", todayVisits)
-                                    .replace("{{totalRules}}", totalRules)
+        // 从shortlink获取short_rules数据
+        let shortRulesData = await shortlink.get('short_rules') || '{}';
+        shortRulesData = JSON.parse(shortRulesData);
+
+        // 设置默认值为0
+        const totalRules = shortRulesData.total_rules || 0;
+        const todayNewRules = shortRulesData.today_new_rules || 0;
+
+        const indexWithStats = index.replace("{{totalRules}}", totalRules)
                                     .replace("{{todayNewRules}}", todayNewRules);
-    
+
         return new Response(indexWithStats, {
             headers: { "content-type": "text/html; charset=utf-8" },
         });
     }
-  
+    
+    
     if (pathname.startsWith(API_PATH)) {
         const body = JSON.parse(await request.text());
         const clientIp = request.headers.get("CF-Connecting-IP") || request.headers.get("x-forwarded-for") || "unknown";
+        const country = request.headers.get("CF-IPCountry") || "unknown";
         var short_type = "link";
         if (body["type"] != undefined && body["type"] != "") {
             short_type = body["type"];
@@ -327,37 +340,54 @@ async function handleRequest(request) {
             expiresAt = new Date();
             expiresAt.setMinutes(expiresAt.getMinutes() + expiration);
         }
-    
+        // 获取当前时间
+        function getChinaTime() {
+            const now = new Date();
+            const offset = 8 * 60; // 中国时间比UTC+8小时
+            const chinaTime = new Date(now.getTime() + (offset * 60 * 1000));
+            const year = chinaTime.getFullYear();
+            const month = String(chinaTime.getMonth() + 1).padStart(2, '0');
+            const day = String(chinaTime.getDate()).padStart(2, '0');
+            const hours = String(chinaTime.getHours()).padStart(2, '0');
+            const minutes = String(chinaTime.getMinutes()).padStart(2, '0');
+            const seconds = String(chinaTime.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
         await shortlink.put(
             body[URL_NAME],
             JSON.stringify({
-                type: short_type,
-                value: body[URL_KEY],
-                expiresAt: expiresAt ? expiresAt.toISOString() : null,
-                burn_after_reading: body["burn_after_reading"],
-                password: body.password,
-                clientIp: clientIp  // 记录客户端IP地址
+                lastUpdate: getChinaTime(), // 增加记录当前时间
+                clientIp: clientIp,  // 记录客户端IP地址
+                type: short_type,  // 类型
+                value: body[URL_KEY], //长链接内容
+                password: body.password, //后缀密码
+                country: country, // 记录提交的国家
+                expiresAt: expiresAt ? expiresAt.toISOString() : null, //规则有效期
+                burn_after_reading: body["burn_after_reading"] //阅后即焚
             })
         );
     
         // 仅当新规则时，更新规则数量
-        if (isNewRule) {
-            let totalRules = parseInt(await shortlink.get('total_rules')) || 0;
-            let todayNewRules = parseInt(await shortlink.get('today_new_rules')) || 0;
-            const lastRuleUpdate = await shortlink.get('last_rule_update');
-            const today = new Date().toISOString().split('T')[0];
-    
-            if (lastRuleUpdate !== today) {
-                todayNewRules = 0;
-            }
-    
-            totalRules += 1;
-            todayNewRules += 1;
-    
-            await shortlink.put('total_rules', totalRules.toString());
-            await shortlink.put('today_new_rules', todayNewRules.toString());
-            await shortlink.put('last_rule_update', today);
-        }
+    if (isNewRule) {
+      let shortRulesData = JSON.parse(await shortlink.get('short_rules'));
+      let totalRules = parseInt(shortRulesData.total_rules) || 0;
+      let todayNewRules = parseInt(shortRulesData.today_new_rules) || 0;
+      let lastRuleUpdate = shortRulesData.last_rule_update;
+      const today = new Date().toISOString().split('T')[0];
+
+      if (lastRuleUpdate !== today) {
+        todayNewRules = 0;
+      }
+
+      totalRules += 1;
+      todayNewRules += 1;
+
+      shortRulesData.total_rules = totalRules.toString();
+      shortRulesData.today_new_rules = todayNewRules.toString();
+      shortRulesData.last_rule_update = today;
+
+      await shortlink.put('short_rules', JSON.stringify(shortRulesData));
+    }
     
         const responseBody = {
             type: body.type,
@@ -398,23 +428,6 @@ async function handleRequest(request) {
       if (link["burn_after_reading"]) {
         await shortlink.delete(key);
       }
-  
-      // Update visit counts
-      let totalVisits = parseInt(await shortlink.get('total_visits')) || 0;
-      let todayVisits = parseInt(await shortlink.get('today_visits')) || 0;
-      const lastUpdate = await shortlink.get('last_update');
-      const today = new Date().toISOString().split('T')[0];
-  
-      if (lastUpdate !== today) {
-        todayVisits = 0;
-      }
-  
-      totalVisits += 1;
-      todayVisits += 1;
-  
-      await shortlink.put('total_visits', totalVisits.toString());
-      await shortlink.put('today_visits', todayVisits.toString());
-      await shortlink.put('last_update', today);
   
       if (link["type"] == "link") {
         return Response.redirect(link["value"], 302);
