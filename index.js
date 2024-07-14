@@ -403,7 +403,7 @@ async function handleRequest(request) {
         });
     }
   
-    const key = pathname.replace("/", "");
+    const key = decodeURIComponent(pathname.replace("/", ""));
     if (key !== "" && !(await shortlink.get(key))) {
       return Response.redirect(`${protocol}//${hostname}${ADMIN_PATH}`, 302);
     }
